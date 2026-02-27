@@ -261,6 +261,14 @@
     <label>Design Life (cycles)</label>
     <input type="number" id="designLife" value="20" step="1" min="1" max="200">
   </div>
+  <div class="control-group">
+    <label>Max Cycles (table)</label>
+    <input type="number" id="maxCycles" value="24" step="1" min="1" max="500">
+  </div>
+  <div class="control-group">
+    <label>Max Samples (table)</label>
+    <input type="number" id="maxSamples" value="10" step="1" min="2" max="50">
+  </div>
 </div>
 
 <div class="derived">
@@ -292,27 +300,21 @@
 <div class="note" id="noteText"></div>
 
 <script>
-  const SAMPLE_COUNTS = [2, 3, 4, 5, 6, 7, 8, 9, 10];
-  const MAX_CYCLES = 24;
-
-  function getCycleColumns(designLife) {
+  function getCycleColumns(designLife, maxCycles) {
     const cols = [];
     const step = Math.max(1, Math.floor(designLife / 10));
-    for (let c = step; c <= MAX_CYCLES; c += step) cols.push(c);
-    // ensure design life itself is included
-    if (!cols.includes(designLife) && designLife <= MAX_CYCLES) {
+    for (let c = step; c <= maxCycles; c += step) cols.push(c);
+    if (!cols.includes(designLife) && designLife <= maxCycles) {
       cols.push(designLife);
       cols.sort((a, b) => a - b);
     }
-    // ensure max cycles is included
-    if (!cols.includes(MAX_CYCLES)) {
-      cols.push(MAX_CYCLES);
+    if (!cols.includes(maxCycles)) {
+      cols.push(maxCycles);
       cols.sort((a, b) => a - b);
     }
     return cols;
   }
 
-  // UCB for 0 failures: 1 - alpha^(1/n_equiv)
   function ucb0(nEquiv, alpha = 0.05) {
     if (nEquiv <= 0) return 1;
     return 1 - Math.pow(alpha, 1 / nEquiv);
@@ -327,6 +329,10 @@
     const ctRate = parseFloat(document.getElementById('ctRate').value) / 100;
     const riskReq = parseFloat(document.getElementById('riskReq').value) / 100;
     const designLife = parseInt(document.getElementById('designLife').value);
+    const maxCycles = parseInt(document.getElementById('maxCycles').value);
+    const maxSamples = parseInt(document.getElementById('maxSamples').value);
+
+    if (!visualVoidRate || !ctRate || !riskReq || !designLife || !maxCycles || !maxSamples) return;
 
     const pDefect = visualVoidRate * ctRate;
     const maxAllowable = riskReq / pDefect;
@@ -334,7 +340,9 @@
     document.getElementById('pDefect').textContent = (pDefect * 100).toFixed(4) + '%';
     document.getElementById('maxAllowable').textContent = (maxAllowable * 100).toFixed(2) + '%';
 
-    const cycleCols = getCycleColumns(designLife);
+    const cycleCols = getCycleColumns(designLife, maxCycles);
+    const sampleCounts = [];
+    for (let n = 2; n <= maxSamples; n++) sampleCounts.push(n);
 
     const table = document.getElementById('mainTable');
     table.innerHTML = '';
@@ -359,7 +367,7 @@
     // Body
     const tbody = document.createElement('tbody');
 
-    SAMPLE_COUNTS.forEach(n => {
+    sampleCounts.forEach(n => {
       const tr = document.createElement('tr');
       const rowLabel = document.createElement('td');
       rowLabel.className = 'row-label';
@@ -397,19 +405,20 @@
 
     table.appendChild(tbody);
 
-    // Find minimum cycles for key sample sizes
-    const noteLines = [2, 3, 5, 7, 10].map(n => {
-      const minC = findMinCycles(n, designLife, maxAllowable, pDefect, riskReq);
-      const color = minC <= MAX_CYCLES ? 'var(--pass-text)' : 'var(--fail-text)';
-      return `n=${n}: <strong style="color:${color}">${minC === 'N/A' || minC > MAX_CYCLES ? `>${MAX_CYCLES} (out of range)` : minC + ' cycles'}</strong>`;
+    // Footer note — min cycles for each sample size in range
+    const noteLines = sampleCounts.map(n => {
+      const minC = findMinCycles(n, designLife, pDefect, riskReq);
+      const color = minC !== 'N/A' && minC <= maxCycles ? 'var(--pass-text)' : 'var(--fail-text)';
+      const label = minC === 'N/A' || minC > maxCycles ? `out of range` : `${minC} cycles`;
+      return `n=${n}: <strong style="color:${color}">${label}</strong>`;
     });
     document.getElementById('noteText').innerHTML =
       `★ = design life (${designLife} cycles) &nbsp;|&nbsp; Min cycles to pass (0 failures): &nbsp;` +
       noteLines.join(' &nbsp;|&nbsp; ');
   }
 
-  function findMinCycles(n, designLife, maxAllowable, pDefect, riskReq) {
-    for (let c = 1; c <= designLife * 10; c++) {
+  function findMinCycles(n, designLife, pDefect, riskReq) {
+    for (let c = 1; c <= 9999; c++) {
       const nEquiv = equivalentSamples(n, c, designLife);
       const ucb = ucb0(nEquiv);
       if (pDefect * ucb < riskReq) return c;
@@ -417,7 +426,7 @@
     return 'N/A';
   }
 
-  ['visualVoidRate', 'ctRate', 'riskReq', 'designLife'].forEach(id => {
+  ['visualVoidRate', 'ctRate', 'riskReq', 'designLife', 'maxCycles', 'maxSamples'].forEach(id => {
     document.getElementById(id).addEventListener('input', render);
   });
 
