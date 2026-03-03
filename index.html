@@ -138,7 +138,7 @@
 
 <header>
   <h1>P(harm | defect) — Risk Assessment Tool</h1>
-  <p>Attribute (pass/fail) one-sided binomial confidence interval at 95% confidence. Global parameters apply across all tabs. Sample tracker data is saved automatically to your browser.</p>
+  <p>Attribute (pass/fail) one-sided binomial confidence interval. Global parameters apply across all tabs. Sample tracker data is saved automatically to your browser.</p>
 </header>
 
 <!-- ══════════ GLOBAL PARAMETERS (shared across all tabs) ══════════ -->
@@ -159,12 +159,17 @@
     <label>Design Life (cycles)</label>
     <input type="number" id="g_dl" value="20" step="1" min="1" max="500">
   </div>
+  <div class="gp-item">
+    <label>Confidence Level (%)</label>
+    <input type="number" id="g_conf" value="95" step="1" min="50" max="99.9">
+  </div>
 </div>
 
 <div class="gp-derived">
   <div class="gd-item"><span class="gd-label">P(defect)</span><span class="gd-value" id="gd_pDefect">—</span></div>
   <div class="gd-item"><span class="gd-label">Max allowable P(harm|defect)</span><span class="gd-value" id="gd_maxU">—</span></div>
-  <div class="gd-item"><span class="gd-label">Confidence</span><span class="gd-value">95%</span></div>
+  <div class="gd-item"><span class="gd-label">Confidence Level</span><span class="gd-value" id="gd_conf">95%</span></div>
+  <div class="gd-item"><span class="gd-label">α (alpha)</span><span class="gd-value" id="gd_alpha">0.05</span></div>
   <div class="gd-item"><span class="gd-label">Method</span><span class="gd-value" style="font-size:11px;padding-top:2px;">One-sided binomial UCB</span></div>
 </div>
 
@@ -189,8 +194,8 @@
     <div class="legend-item"><div class="legend-dot" style="background:rgba(110,26,26,0.3)"></div> Fail</div>
   </div>
   <div class="note" id="noteText"></div>
-  <div class="note" style="margin-top:10px;">
-    <strong style="color:var(--text)">Formula:</strong> UCB = 1 − 0.05<sup>1/n<sub>equiv</sub></sup> &nbsp;|&nbsp;
+  <div class="note" style="margin-top:10px;" id="tableFormulaNote">
+    <strong style="color:var(--text)">Formula:</strong> UCB = 1 − α<sup>1/n<sub>equiv</sub></sup> &nbsp;|&nbsp;
     n<sub>equiv</sub> = N × (cycles / design life) &nbsp;|&nbsp;
     P(loss of vision) = P(defect) × UCB &nbsp;|&nbsp;
     <strong style="color:var(--text)">Note:</strong> Any failure invalidates this table — use the Failure Contingency tab.
@@ -258,9 +263,10 @@ function ucb0(ne, alpha) {
   return 1 - Math.pow(alpha, 1 / ne);
 }
 
-function cpUCB(k, ne) {
-  if (k === 0) return ucb0(ne, 0.05);
-  return betaQuantile(0.95, k + 1, ne - k);
+function cpUCB(k, ne, conf) {
+  conf = conf || 0.95;
+  if (k === 0) return ucb0(ne, 1 - conf);
+  return betaQuantile(conf, k + 1, ne - k);
 }
 
 function betaQuantile(p, a, b) {
@@ -301,11 +307,15 @@ function lgam(z) {
 // ═══════════════════════════════════════════════════════
 
 function getGlobals() {
+  var conf = parseFloat(document.getElementById('g_conf').value) || 95;
+  conf = Math.min(99.9, Math.max(50, conf));
   return {
-    vvr: parseFloat(document.getElementById('g_vvr').value) / 100 || 0,
-    ctr: parseFloat(document.getElementById('g_ctr').value) / 100 || 0,
-    rr:  parseFloat(document.getElementById('g_rr').value)  / 100 || 0,
-    dl:  parseInt(document.getElementById('g_dl').value)    || 20
+    vvr:   parseFloat(document.getElementById('g_vvr').value)  / 100 || 0,
+    ctr:   parseFloat(document.getElementById('g_ctr').value)  / 100 || 0,
+    rr:    parseFloat(document.getElementById('g_rr').value)   / 100 || 0,
+    dl:    parseInt(document.getElementById('g_dl').value)     || 20,
+    conf:  conf / 100,
+    alpha: 1 - conf / 100
   };
 }
 
@@ -315,6 +325,8 @@ function updateDerived() {
   var maxU = g.rr > 0 && pD > 0 ? g.rr / pD : 0;
   document.getElementById('gd_pDefect').textContent = pD > 0 ? (pD*100).toFixed(4)+'%' : '—';
   document.getElementById('gd_maxU').textContent    = maxU > 0 ? (maxU*100).toFixed(2)+'%' : '—';
+  document.getElementById('gd_conf').textContent    = (g.conf*100).toFixed(1)+'%';
+  document.getElementById('gd_alpha').textContent   = g.alpha.toFixed(4);
   saveGlobals();
   renderTable();
   renderContingency();
@@ -337,10 +349,11 @@ function saveAll() {
   }
   var data = {
     globals: {
-      vvr: document.getElementById('g_vvr').value,
-      ctr: document.getElementById('g_ctr').value,
-      rr:  document.getElementById('g_rr').value,
-      dl:  document.getElementById('g_dl').value
+      vvr:  document.getElementById('g_vvr').value,
+      ctr:  document.getElementById('g_ctr').value,
+      rr:   document.getElementById('g_rr').value,
+      dl:   document.getElementById('g_dl').value,
+      conf: document.getElementById('g_conf').value
     },
     tableParams: {
       maxCycles: document.getElementById('maxCycles').value,
@@ -370,10 +383,11 @@ function saveGlobals() {
     var raw = localStorage.getItem(STORAGE_KEY);
     var data = raw ? JSON.parse(raw) : {};
     data.globals = {
-      vvr: document.getElementById('g_vvr').value,
-      ctr: document.getElementById('g_ctr').value,
-      rr:  document.getElementById('g_rr').value,
-      dl:  document.getElementById('g_dl').value
+      vvr:  document.getElementById('g_vvr').value,
+      ctr:  document.getElementById('g_ctr').value,
+      rr:   document.getElementById('g_rr').value,
+      dl:   document.getElementById('g_dl').value,
+      conf: document.getElementById('g_conf').value
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch(e) {}
@@ -386,10 +400,11 @@ function loadAll() {
     var data = JSON.parse(raw);
 
     if (data.globals) {
-      if (data.globals.vvr) document.getElementById('g_vvr').value = data.globals.vvr;
-      if (data.globals.ctr) document.getElementById('g_ctr').value = data.globals.ctr;
-      if (data.globals.rr)  document.getElementById('g_rr').value  = data.globals.rr;
-      if (data.globals.dl)  document.getElementById('g_dl').value  = data.globals.dl;
+      if (data.globals.vvr)  document.getElementById('g_vvr').value  = data.globals.vvr;
+      if (data.globals.ctr)  document.getElementById('g_ctr').value  = data.globals.ctr;
+      if (data.globals.rr)   document.getElementById('g_rr').value   = data.globals.rr;
+      if (data.globals.dl)   document.getElementById('g_dl').value   = data.globals.dl;
+      if (data.globals.conf) document.getElementById('g_conf').value = data.globals.conf;
     }
 
     if (data.tableParams) {
@@ -476,7 +491,7 @@ function renderTable() {
     var rl=document.createElement('td'); rl.className='row-label'; rl.textContent='n = '+n; tr.appendChild(rl);
     cols.forEach(function(c){
       var td=document.createElement('td');
-      var ne=n*(c/g.dl), ucb=ucb0(ne), ph=pD*ucb;
+      var ne=n*(c/g.dl), ucb=ucb0(ne, g.alpha), ph=pD*ucb;
       td.textContent=(ucb*100).toFixed(1)+'%';
       var mg=maxU*0.10;
       if(ph<g.rr){ td.className=ucb>maxU-mg?'warn':'pass'; td.title='P(harm)='+(ph*100).toFixed(3)+'%'+(td.className==='pass'?' ✓':' — marginal'); }
@@ -490,11 +505,12 @@ function renderTable() {
 
   var lines=ns.map(function(n){
     var minC='N/A';
-    for(var c=1;c<=9999;c++){ if(pD*ucb0(n*(c/g.dl))<g.rr){minC=c;break;} }
+    for(var c=1;c<=9999;c++){ if(pD*ucb0(n*(c/g.dl), g.alpha)<g.rr){minC=c;break;} }
     var ok=minC!=='N/A'&&minC<=maxC;
     return 'n='+n+': <strong style="color:'+(ok?'var(--pass-text)':'var(--fail-text)') +'">'+(ok?minC+' cycles':'out of range')+'</strong>';
   });
   document.getElementById('noteText').innerHTML='★ = design life ('+g.dl+' cycles) &nbsp;|&nbsp; Min cycles to pass (0 failures): &nbsp;'+lines.join(' &nbsp;|&nbsp; ');
+  document.getElementById('tableFormulaNote').innerHTML='<strong style="color:var(--text)">Formula:</strong> UCB = 1 − '+g.alpha.toFixed(4)+'<sup>1/n<sub>equiv</sub></sup> (α = '+g.alpha.toFixed(4)+', '+( g.conf*100).toFixed(1)+'% confidence) &nbsp;|&nbsp; n<sub>equiv</sub> = N × (cycles / design life) &nbsp;|&nbsp; P(loss of vision) = P(defect) × UCB &nbsp;|&nbsp; <strong style="color:var(--text)">Note:</strong> Any failure invalidates this table — use the Failure Contingency tab.';
 }
 
 ['maxCycles','maxSamples'].forEach(function(id){
@@ -543,17 +559,17 @@ function renderContingency() {
 
   var failContrib=fcs.reduce(function(s,fc){return s+fc/g.dl;},0);
   var ne_now=nS*(csf/g.dl)+failContrib;
-  var ucbNow=cpUCB(nF,ne_now), pNow=pD*ucbNow, passNow=pNow<g.rr;
+  var ucbNow=cpUCB(nF,ne_now,g.conf), pNow=pD*ucbNow, passNow=pNow<g.rr;
 
   var addl=0, found=false;
   if(!passNow&&nS>0){
     for(var ex=0;ex<=5000;ex++){
-      if(pD*cpUCB(nF, nS*((csf+ex)/g.dl)+failContrib)<g.rr){ addl=ex; found=true; break; }
+      if(pD*cpUCB(nF, nS*((csf+ex)/g.dl)+failContrib, g.conf)<g.rr){ addl=ex; found=true; break; }
     }
   }
 
   var totalReq=csf+addl, ne_final=nS*(totalReq/g.dl)+failContrib;
-  var ucbFin=cpUCB(nF,ne_final), pFin=pD*ucbFin;
+  var ucbFin=cpUCB(nF,ne_final,g.conf), pFin=pD*ucbFin;
 
   var cc=!found?'fail-card':passNow?'pass-card':'warn-card';
   var fl=fcs.map(function(fc,i){return 'Failure '+(i+1)+': cycle '+fc+' ('+((fc/g.dl)*100).toFixed(0)+'% of DL)';}).join('<br>');
@@ -667,7 +683,7 @@ function renderTracker() {
     samples.push({id:i,status:st,cycles:cy,contrib:contrib,label:lbl});
   }
 
-  var ucbNow=cpUCB(nFailed,ne_total), pNow=pD*ucbNow, passNow=pNow<g.rr;
+  var ucbNow=cpUCB(nFailed,ne_total,g.conf), pNow=pD*ucbNow, passNow=pNow<g.rr;
   var nActive=samples.filter(function(s){return s.status==='active';}).length;
   var nonActiveCo=samples.filter(function(s){return s.status!=='active';}).reduce(function(sum,s){return sum+s.contrib;},0);
 
@@ -676,7 +692,7 @@ function renderTracker() {
     for(var ex=0;ex<=5000;ex++){
       var tc=nonActiveCo;
       samples.filter(function(s){return s.status==='active';}).forEach(function(s){tc+=(s.cycles+ex)/g.dl;});
-      if(pD*cpUCB(nFailed,tc)<g.rr){addlNeeded=ex;found=true;break;}
+      if(pD*cpUCB(nFailed,tc,g.conf)<g.rr){addlNeeded=ex;found=true;break;}
     }
   }
 
@@ -758,7 +774,7 @@ function dstat(label, value, cls) {
 // INIT
 // ═══════════════════════════════════════════════════════
 
-['g_vvr','g_ctr','g_rr','g_dl'].forEach(function(id){
+['g_vvr','g_ctr','g_rr','g_dl','g_conf'].forEach(function(id){
   document.getElementById(id).addEventListener('input', updateDerived);
 });
 
